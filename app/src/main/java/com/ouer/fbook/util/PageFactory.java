@@ -1,0 +1,689 @@
+package com.ouer.fbook.util;
+
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Region;
+import android.graphics.Typeface;
+import android.util.DisplayMetrics;
+import android.util.Log;
+import android.view.WindowManager;
+import android.widget.Toast;
+
+import com.ouer.fbook.BookApplication;
+import com.ouer.fbook.Config;
+import com.ouer.fbook.R;
+import com.ouer.fbook.db.bean.BookContent;
+import com.ouer.fbook.db.bean.BookContentChapter;
+import com.ouer.fbook.db.bean.BookSpiderChapter;
+import com.ouer.fbook.network.HttpHelper;
+import com.ouer.fbook.view.PageWidget;
+
+import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.List;
+import java.util.concurrent.Callable;
+
+import io.reactivex.Flowable;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Consumer;
+import io.reactivex.schedulers.Schedulers;
+
+/**
+ * Created by Administrator on 2016/7/20 0020.
+ */
+public class PageFactory {
+    private static final String TAG = "PageFactory";
+    private static PageFactory pageFactory;
+
+    private Context mContext;
+    private Config config;
+    //当前的书本
+//    private File book_file = null;
+    // 默认背景颜色
+    private int m_backColor = 0xffff9e85;
+    //页面宽
+    private int mWidth;
+    //页面高
+    private int mHeight;
+    //文字字体大小
+    private float m_fontSize ;
+    //时间格式
+    private SimpleDateFormat sdf;
+    //时间
+    private String date;
+    //进度格式
+    private DecimalFormat df ;
+    //电池边界宽度
+    private float mBorderWidth;
+    // 上下与边缘的距离
+    private float marginHeight ;
+    // 左右与边缘的距离
+    private float measureMarginWidth ;
+    // 左右与边缘的距离
+    private float marginWidth ;
+    //状态栏距离底部高度
+    private float statusMarginBottom;
+    //行间距
+    private float lineSpace;
+    //段间距
+    private float paragraphSpace;
+    //字高度
+    private float fontHeight;
+    //字体
+    private Typeface typeface;
+    //文字画笔
+    private Paint mPaint;
+    //加载画笔
+    private Paint waitPaint;
+    //文字颜色
+    private int m_textColor = Color.rgb(50, 65, 78);
+    // 绘制内容的宽
+    private float mVisibleHeight;
+    // 绘制内容的宽
+    private float mVisibleWidth;
+    // 每页可以显示的行数
+    private int mLineCount;
+    //电池画笔
+    private Paint mBatterryPaint ;
+    //电池字体大小
+    private float mBatterryFontSize;
+    //背景图片
+    private Bitmap m_book_bg = null;
+    //当前显示的文字
+//    private StringBuilder word = new StringBuilder();
+    //当前总共的行
+//    private Vector<String> m_lines = new Vector<>();
+//    // 当前页起始位置
+//    private long m_mbBufBegin = 0;
+//    // 当前页终点位置
+//    private long m_mbBufEnd = 0;
+//    // 之前页起始位置
+//    private long m_preBegin = 0;
+//    // 之前页终点位置
+//    private long m_preEnd = 0;
+    // 图书总长度
+//    private long m_mbBufLen = 0;
+    private Intent batteryInfoIntent;
+    //电池电量百分比
+    private float mBatteryPercentage;
+    //电池外边框
+    private RectF rect1 = new RectF();
+    //电池内边框
+    private RectF rect2 = new RectF();
+
+    //书本widget
+    private PageWidget mBookPageWidget;
+    //书本名字
+    private String bookName = "";
+    //当前电量
+    private int level = 0;
+    private BookUtil mBookUtil;
+    private TRPage currentPage;
+    private TRPage prePage;
+    private TRPage cancelPage;
+
+    private Long mBookId;
+    private Integer mChapterOrder;
+    private BookContent mBookContent;
+    private int mCurPage;
+    private int mTotalPage;
+
+    private static Status mStatus = Status.OPENING;
+
+    public enum Status {
+        OPENING,
+        FINISH,
+        FAIL,
+    }
+
+    public static synchronized PageFactory getInstance(){
+        return pageFactory;
+    }
+
+    public static synchronized PageFactory createPageFactory(Context context){
+        if (pageFactory == null){
+            pageFactory = new PageFactory(context);
+        }
+        return pageFactory;
+    }
+
+    private PageFactory(Context context) {
+        mBookUtil = new BookUtil();
+        mContext = context.getApplicationContext();
+        config = Config.getInstance();
+        //获取屏幕宽高
+        WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        DisplayMetrics metric = new DisplayMetrics();
+        wm.getDefaultDisplay().getMetrics(metric);
+        mWidth = metric.widthPixels;
+        mHeight = metric.heightPixels;
+
+        sdf = new SimpleDateFormat("HH:mm");//HH:mm为24小时制,hh:mm为12小时制
+        date = sdf.format(new java.util.Date());
+        df = new DecimalFormat("#0.0");
+
+        marginWidth = mContext.getResources().getDimension(R.dimen.readingMarginWidth);
+        marginHeight = mContext.getResources().getDimension(R.dimen.readingMarginHeight);
+        statusMarginBottom = mContext.getResources().getDimension(R.dimen.reading_status_margin_bottom);
+        lineSpace = context.getResources().getDimension(R.dimen.reading_line_spacing);
+        paragraphSpace = context.getResources().getDimension(R.dimen.reading_paragraph_spacing);
+        mVisibleWidth = mWidth - marginWidth * 2;
+        mVisibleHeight = mHeight - marginHeight * 2;
+
+        typeface = config.getTypeface();
+        m_fontSize = config.getFontSize();
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);// 画笔
+        mPaint.setTextAlign(Paint.Align.LEFT);// 左对齐
+        mPaint.setTextSize(m_fontSize);// 字体大小
+        mPaint.setColor(m_textColor);// 字体颜色
+        mPaint.setTypeface(typeface);
+        mPaint.setSubpixelText(true);// 设置该项为true，将有助于文本在LCD屏幕上的显示效果
+
+        waitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);// 画笔
+        waitPaint.setTextAlign(Paint.Align.LEFT);// 左对齐
+        waitPaint.setTextSize(mContext.getResources().getDimension(R.dimen.reading_max_text_size));// 字体大小
+        waitPaint.setColor(m_textColor);// 字体颜色
+        waitPaint.setTypeface(typeface);
+        waitPaint.setSubpixelText(true);// 设置该项为true，将有助于文本在LCD屏幕上的显示效果
+        calculateLineCount();
+
+        mBorderWidth = mContext.getResources().getDimension(R.dimen.reading_board_battery_border_width);
+        mBatterryPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mBatterryFontSize = CommonUtil.sp2px(context, 12);
+        mBatterryPaint.setTextSize(mBatterryFontSize);
+        mBatterryPaint.setTypeface(typeface);
+        mBatterryPaint.setTextAlign(Paint.Align.LEFT);
+        mBatterryPaint.setColor(m_textColor);
+        batteryInfoIntent = context.getApplicationContext().registerReceiver(null,
+                new IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ;//注册广播,随时获取到电池电量信息
+
+        initBg(config.getDayOrNight());
+        measureMarginWidth();
+    }
+
+    private void measureMarginWidth(){
+        float wordWidth =mPaint.measureText("\u3000");
+        float width = mVisibleWidth % wordWidth;
+        measureMarginWidth = marginWidth + width / 2;
+
+//        Rect rect = new Rect();
+//        mPaint.getTextBounds("好", 0, 1, rect);
+//        float wordHeight = rect.height();
+//        float wordW = rect.width();
+//        Paint.FontMetrics fm = mPaint.getFontMetrics();
+//        float wrodH = (float) (Math.ceil(fm.top + fm.bottom + fm.leading));
+//        String a = "";
+
+    }
+
+    //初始化背景
+    private void initBg(Boolean isNight){
+        if (isNight) {
+            //设置背景
+//            setBgBitmap(BitmapUtil.decodeSampledBitmapFromResource(
+//                    mContext.getResources(), R.drawable.main_bg, mWidth, mHeight));
+            Bitmap bitmap = Bitmap.createBitmap(mWidth,mHeight, Bitmap.Config.RGB_565);
+            Canvas canvas = new Canvas(bitmap);
+            canvas.drawColor(Color.BLACK);
+            setBgBitmap(bitmap);
+            //设置字体颜色
+            setM_textColor(Color.rgb(128, 128, 128));
+            setBookPageBg(Color.BLACK);
+        } else {
+            //设置背景
+            setBookBg(config.getBookBgType());
+        }
+    }
+
+    private void calculateLineCount(){
+        mLineCount = (int) (mVisibleHeight / (m_fontSize + lineSpace));// 可显示的行数
+    }
+
+    private void drawStatus(Bitmap bitmap){
+        String status = "";
+        switch (mStatus){
+            case OPENING:
+                status = "Loading...";
+                break;
+            case FAIL:
+                status = "下载失败，请重试！";
+                break;
+        }
+
+        Canvas c = new Canvas(bitmap);
+        c.drawBitmap(getBgBitmap(), 0, 0, null);
+        waitPaint.setColor(getTextColor());
+        waitPaint.setTextAlign(Paint.Align.CENTER);
+
+        Rect targetRect = new Rect(0, 0, mWidth, mHeight);
+//        c.drawRect(targetRect, waitPaint);
+        Paint.FontMetricsInt fontMetrics = waitPaint.getFontMetricsInt();
+        // 转载请注明出处：http://blog.csdn.net/hursing
+        int baseline = (targetRect.bottom + targetRect.top - fontMetrics.bottom - fontMetrics.top) / 2;
+        // 下面这行是实现水平居中，drawText对应改为传入targetRect.centerX()
+        waitPaint.setTextAlign(Paint.Align.CENTER);
+        c.drawText(status, targetRect.centerX(), baseline, waitPaint);
+//        c.drawText("正在打开书本...", mHeight / 2, 0, waitPaint);
+        mBookPageWidget.postInvalidate();
+    }
+
+    public void onDraw(Bitmap bitmap,List<String> m_lines,Boolean updateCharter) {
+//        if (getDirectoryList().size() > 0 && updateCharter) {
+//            currentCharter = getCurrentCharter();
+//        }
+
+        Canvas c = new Canvas(bitmap);
+        c.drawBitmap(getBgBitmap(), 0, 0, null);
+//        word.setLength(0);
+        mPaint.setTextSize(getFontSize());
+        mPaint.setColor(getTextColor());
+        mBatterryPaint.setColor(getTextColor());
+        if (m_lines.size() == 0) {
+            return;
+        }
+
+        if (m_lines.size() > 0) {
+            float y = marginHeight;
+            for (String strLine : m_lines) {
+                y += m_fontSize + lineSpace;
+                c.drawText(strLine, measureMarginWidth, y, mPaint);
+//                word.append(strLine);
+            }
+        }
+
+        //画进度及时间
+        int dateWith = (int) (mBatterryPaint.measureText(date)+mBorderWidth);//时间宽度
+//        float fPercent = (float) (currentPage.getBegin() * 1.0 / mBookUtil.getBookLen());//进度
+//        currentProgress = fPercent;
+//        if (mPageEvent != null){
+//            mPageEvent.changeProgress(fPercent);
+//        }
+//        String strPercent = df.format(fPercent * 100) + "%";//进度文字
+//        int nPercentWidth = (int) mBatterryPaint.measureText("999.9%") + 1;  //Paint.measureText直接返回參數字串所佔用的寬度
+//        c.drawText(strPercent, mWidth - nPercentWidth, mHeight - statusMarginBottom, mBatterryPaint);//x y为坐标值
+        c.drawText(date, marginWidth ,mHeight - statusMarginBottom, mBatterryPaint);
+        // 画电池
+        level = batteryInfoIntent.getIntExtra( "level" , 0 );
+        int scale = batteryInfoIntent.getIntExtra("scale", 100);
+        mBatteryPercentage = (float) level / scale;
+        float rect1Left = marginWidth + dateWith + statusMarginBottom;//电池外框left位置
+        //画电池外框
+        float width = CommonUtil.convertDpToPixel(mContext,20) - mBorderWidth;
+        float height = CommonUtil.convertDpToPixel(mContext,10);
+        rect1.set(rect1Left, mHeight - height - statusMarginBottom,rect1Left + width, mHeight - statusMarginBottom);
+        rect2.set(rect1Left + mBorderWidth, mHeight - height + mBorderWidth - statusMarginBottom, rect1Left + width - mBorderWidth, mHeight - mBorderWidth - statusMarginBottom);
+//        c.save(Canvas.CLIP_SAVE_FLAG);
+        c.clipRect(rect2, Region.Op.DIFFERENCE);
+        c.drawRect(rect1, mBatterryPaint);
+        c.save();
+        c.restore();
+        //画电量部分
+        rect2.left += mBorderWidth;
+        rect2.right -= mBorderWidth;
+        rect2.right = rect2.left + rect2.width() * mBatteryPercentage;
+        rect2.top += mBorderWidth;
+        rect2.bottom -= mBorderWidth;
+        c.drawRect(rect2, mBatterryPaint);
+        //画电池头
+        int poleHeight = (int) CommonUtil.convertDpToPixel(mContext,10) / 2;
+        rect2.left = rect1.right;
+        rect2.top = rect2.top + poleHeight / 4;
+        rect2.right = rect1.right + mBorderWidth;
+        rect2.bottom = rect2.bottom - poleHeight/4;
+        c.drawRect(rect2, mBatterryPaint);
+        //画书名
+        c.drawText(CommonUtil.subString(bookName,12), marginWidth ,statusMarginBottom + mBatterryFontSize, mBatterryPaint);
+        //画章
+        if (getDirectoryList().size() > 0) {
+            String charterName = CommonUtil.subString(getDirectoryList().get(mChapterOrder).getChapterName(),12);
+            int nChaterWidth = (int) mBatterryPaint.measureText(charterName) + 1;
+            c.drawText(charterName, mWidth - marginWidth - nChaterWidth, statusMarginBottom  + mBatterryFontSize, mBatterryPaint);
+        }
+
+        mBookPageWidget.postInvalidate();
+    }
+
+   //向前翻页
+    public void prePage(){
+        if (isfirstPage()){
+            preChapter();
+            return;
+        }
+
+
+        cancelPage = currentPage;
+        onDraw(mBookPageWidget.getCurPage(),currentPage.getLines(),true);
+        currentPage = getPrePage();
+        onDraw(mBookPageWidget.getNextPage(),currentPage.getLines(),true);
+    }
+
+    //向后翻页
+    public void nextPage(){
+        if (islastPage()){
+            nextChapter();
+            return;
+        }
+
+        cancelPage = currentPage;
+        onDraw(mBookPageWidget.getCurPage(),currentPage.getLines(),true);
+        prePage = currentPage;
+        currentPage = getNextPage();
+        onDraw(mBookPageWidget.getNextPage(),currentPage.getLines(),true);
+        Log.e("nextPage","nextPagenext");
+    }
+
+    //取消翻页
+    public void cancelPage(){
+        currentPage = cancelPage;
+    }
+
+    public void openBook(Long bookId, Integer chapterOrder, Integer page) {
+        mBookId=bookId;
+
+        mBookContent = BookApplication.contentDao.get(bookId);
+        bookName=mBookContent.getBookName();
+        openChapter(chapterOrder, page);
+    }
+
+    public void openChapter(Integer chapterOrder, final Integer page) {
+        mChapterOrder=chapterOrder;
+        initBg(config.getDayOrNight());
+
+        mStatus = Status.OPENING;
+        drawStatus(mBookPageWidget.getCurPage());
+        drawStatus(mBookPageWidget.getNextPage());
+
+        BookContentChapter Chapter = BookApplication.chapterDao.findByBookIdOrder(mBookId, mChapterOrder);
+        if(Chapter == null) {
+            //先下载
+            Disposable disposable = Flowable.fromCallable(new Callable<Boolean>() {
+                @Override
+                public Boolean call() throws Exception {
+                    BookSpiderChapter spiderChapter=BookApplication.spiderChapterDao.findByBookOrderId(mBookId,mChapterOrder);
+
+                    String body = HttpHelper.syncGetOkhttp(spiderChapter.getLink());
+                    BookApplication.parseHelper.getChapterDetail(spiderChapter, body);
+
+                    return true;
+                }
+            }).subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(new Consumer<Boolean>() {
+                @Override
+                public void accept(Boolean s) throws Exception {
+                    initBookChapter(page);
+                }
+            }, new Consumer<Throwable>() {
+                @Override
+                public void accept(Throwable throwable) throws Exception {
+                    System.out.println(throwable.getMessage());
+                }
+            });
+
+        } else {
+            initBookChapter(page);
+        }
+    }
+
+    private void initBookChapter(Integer page) {
+        try {
+            mBookUtil.openBook(mBookId, mChapterOrder);
+            initPage(page);
+            currentPage = getPageForBegin();
+            if (mBookPageWidget != null) {
+                currentPage(true);
+            }
+            mStatus = Status.FINISH;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private List<TRPage> mPageList;
+    private void initPage(Integer page) {
+        mCurPage=page;
+        mPageList = mBookUtil.initPage(mPaint, mVisibleWidth, mLineCount);
+        mTotalPage = mPageList.size();
+        if(mCurPage > mTotalPage) {
+            mCurPage = mTotalPage-1;
+        }
+    }
+
+    private TRPage getNextPage(){
+        if(mCurPage >= mTotalPage-1) {
+            return mPageList.get(mTotalPage - 1);
+        }
+        mCurPage++;
+        return mPageList.get(mCurPage);
+    }
+
+    private TRPage getPrePage(){
+        if(mCurPage <=0) {
+            return mPageList.get(0);
+        }
+        mCurPage--;
+        return mPageList.get(mCurPage);
+    }
+
+    private TRPage getPageForBegin(){
+        return mPageList.get(0);
+    }
+
+    //上一章
+    public void preChapter(){
+        if(mChapterOrder <= 0) {
+            Log.e(TAG, "当前是第一章了");
+            Toast.makeText(mContext, "当前是第一章了", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        mChapterOrder--;
+        openChapter(mChapterOrder, 100);
+    }
+
+    //下一章
+    public void nextChapter(){
+        if(mChapterOrder >= getDirectoryList().size()-1) {
+            Log.e(TAG,"已经是最后一页了");
+            Toast.makeText(mContext, "已经是最后一章了", Toast.LENGTH_SHORT).show();
+            return ;
+        }
+
+        mChapterOrder++;
+        openChapter(mChapterOrder, 0);
+    }
+
+
+    //绘制当前页面
+    public void currentPage(Boolean updateChapter){
+        onDraw(mBookPageWidget.getCurPage(),currentPage.getLines(),updateChapter);
+        onDraw(mBookPageWidget.getNextPage(),currentPage.getLines(),updateChapter);
+    }
+
+    //更新电量
+    public void updateBattery(int mLevel){
+        if (currentPage != null && mBookPageWidget != null && !mBookPageWidget.isRunning()) {
+            if (level != mLevel) {
+                level = mLevel;
+                currentPage(false);
+            }
+        }
+    }
+
+    public void updateTime(){
+        if (currentPage != null && mBookPageWidget != null && !mBookPageWidget.isRunning()) {
+            String mDate = sdf.format(new java.util.Date());
+            if (date != mDate) {
+                date = mDate;
+                currentPage(false);
+            }
+        }
+    }
+
+    //改变字体大小
+    public void changeFontSize(int fontSize){
+        this.m_fontSize = fontSize;
+        mPaint.setTextSize(m_fontSize);
+        calculateLineCount();
+        measureMarginWidth();
+        initPage(0);
+        currentPage = getPageForBegin();
+        currentPage(true);
+    }
+
+    //改变字体
+    public void changeTypeface(Typeface typeface){
+        this.typeface = typeface;
+        mPaint.setTypeface(typeface);
+        mBatterryPaint.setTypeface(typeface);
+        calculateLineCount();
+        measureMarginWidth();
+        initPage(0);
+        currentPage = getPageForBegin();
+        currentPage(true);
+    }
+
+    //改变背景
+    public void changeBookBg(int type){
+        setBookBg(type);
+        currentPage(false);
+    }
+
+    //设置页面的背景
+    public void setBookBg(int type){
+        Bitmap bitmap = Bitmap.createBitmap(mWidth,mHeight, Bitmap.Config.RGB_565);
+        Canvas canvas = new Canvas(bitmap);
+        int color = 0;
+        switch (type){
+            case Config.BOOK_BG_DEFAULT:
+                canvas = null;
+                bitmap.recycle();
+                if (getBgBitmap() != null) {
+                    getBgBitmap().recycle();
+                }
+                bitmap = BitmapUtil.decodeSampledBitmapFromResource(
+                        mContext.getResources(), R.drawable.paper, mWidth, mHeight);
+                color = mContext.getResources().getColor(R.color.read_font_default);
+                setBookPageBg(mContext.getResources().getColor(R.color.read_bg_default));
+                break;
+            case Config.BOOK_BG_1:
+                canvas.drawColor(mContext.getResources().getColor(R.color.read_bg_1));
+                color = mContext.getResources().getColor(R.color.read_font_1);
+                setBookPageBg(mContext.getResources().getColor(R.color.read_bg_1));
+                break;
+            case Config.BOOK_BG_2:
+                canvas.drawColor(mContext.getResources().getColor(R.color.read_bg_2));
+                color = mContext.getResources().getColor(R.color.read_font_2);
+                setBookPageBg(mContext.getResources().getColor(R.color.read_bg_2));
+                break;
+            case Config.BOOK_BG_3:
+                canvas.drawColor(mContext.getResources().getColor(R.color.read_bg_3));
+                color = mContext.getResources().getColor(R.color.read_font_3);
+                if (mBookPageWidget != null) {
+                    mBookPageWidget.setBgColor(mContext.getResources().getColor(R.color.read_bg_3));
+                }
+                break;
+            case Config.BOOK_BG_4:
+                canvas.drawColor(mContext.getResources().getColor(R.color.read_bg_4));
+                color = mContext.getResources().getColor(R.color.read_font_4);
+                setBookPageBg(mContext.getResources().getColor(R.color.read_bg_4));
+                break;
+        }
+
+        setBgBitmap(bitmap);
+        //设置字体颜色
+        setM_textColor(color);
+    }
+
+    public void setBookPageBg(int color){
+        if (mBookPageWidget != null) {
+            mBookPageWidget.setBgColor(color);
+        }
+    }
+    //设置日间或者夜间模式
+    public void setDayOrNight(Boolean isNgiht){
+        initBg(isNgiht);
+        currentPage(false);
+    }
+
+    public void clear(){
+        bookName = "";
+        mBookPageWidget = null;
+        cancelPage = null;
+        prePage = null;
+        currentPage = null;
+    }
+
+    public static Status getStatus(){
+        return mStatus;
+    }
+
+    private List<BookSpiderChapter> bookSpiderChapter;
+    //获取书本的章
+    private List<BookSpiderChapter> getDirectoryList(){
+
+        if(bookSpiderChapter == null) {
+            bookSpiderChapter = BookApplication.spiderChapterDao.findByBookId(mBookId);
+        }
+
+        return bookSpiderChapter;
+    }
+
+    //是否是第一页
+    public boolean isfirstPage() {
+        return mCurPage <= 0;
+    }
+    //是否是最后一页
+    public boolean islastPage() {
+        return mCurPage >= mTotalPage-1;
+    }
+    //设置页面背景
+    public void setBgBitmap(Bitmap BG) {
+        m_book_bg = BG;
+    }
+    //设置页面背景
+    public Bitmap getBgBitmap() {
+        return m_book_bg;
+    }
+    //设置文字颜色
+    public void setM_textColor(int m_textColor) {
+        this.m_textColor = m_textColor;
+    }
+    //获取文字颜色
+    public int getTextColor() {
+        return this.m_textColor;
+    }
+    //获取文字大小
+    public float getFontSize() {
+        return this.m_fontSize;
+    }
+
+    public void setPageWidget(PageWidget mBookPageWidget){
+        this.mBookPageWidget = mBookPageWidget;
+    }
+
+    public interface PageEvent{
+        void changeProgress(float progress);
+    }
+
+    public void saveBookStatus() {
+        BookApplication.viewRecordDao.addOrUpdate(mBookId, mChapterOrder, mCurPage);
+    }
+
+
+    public Long getBookId() {
+        return mBookId;
+    }
+
+    public Integer getChapterOrder() {
+        return mChapterOrder;
+    }
+}

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="horizontal"
+    android:layout_width="match_parent"
+    android:layout_height="100dp"
+    android:padding="10dp"
+    android:id="@+id/parent"
+    >
+
+    <ImageView
+        android:id="@+id/search_img"
+        android:layout_width="60dp"
+        android:layout_height="80dp"
+        android:src="@mipmap/ic_launcher"
+        android:scaleType="centerCrop"
+        />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:orientation="vertical"
+        android:layout_gravity="center"
+        >
+
+        <TextView
+            android:id="@+id/search_book_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:text="@string/default_text"
+            android:textColor="@color/black"
+            />
+
+        <TextView
+            android:id="@+id/search_author"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:text="@string/default_text"
+            />
+
+        <TextView
+            android:id="@+id/search_last"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:text="@string/default_text"
+            />
+    </LinearLayout>
+
+</LinearLayout>
